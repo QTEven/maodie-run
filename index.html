@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>耄耋快跑 - Maodie Run</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: sans-serif;
+    }
+    #gameCanvas {
+      display: block;
+      background: linear-gradient(#ccf, #eef);
+    }
+    #startScreen, #gameOverScreen, #portalScreen {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    #statusHUD {
+      position: absolute;
+      top: 10px;
+      left: 20px;
+      color: white;
+      font-size: 20px;
+      font-weight: bold;
+      z-index: 5;
+    }
+    button {
+      padding: 10px 20px;
+      margin-top: 20px;
+      font-size: 20px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+<div id="startScreen">
+  <img src="image/耄耋奔跑.gif" width="100" />
+  <h1>耄耋快跑</h1>
+  <button onclick="startGame()">开始游戏</button>
+</div>
+
+<div id="gameOverScreen" style="display:none">
+  <img id="gameOverImg" src="image/耄耋过载.jpg" width="300" />
+  <h1 id="gameOverText">你过载了！</h1>
+  <button id="bossButton" style="display:none" onclick="window.location.href='level2.html'">点击进入Boss关</button>
+  <button id="retryButton" onclick="location.reload()">再来一次</button>
+</div>
+
+<div id="portalScreen" style="display:none; text-align: center;">
+  <img src="image/传送门.png" width="200" />
+  <h1>是否前往Boss关</h1>
+  <button onclick="enterBoss()">进入传送门</button>
+</div>
+
+<div id="statusHUD">
+  第一关（跳过30只耄耋生物）<br>
+  <span id="passCount">0</span>/30
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let playerImg = new Image();
+playerImg.src = 'image/耄耋自行车.gif';
+let portalImg = new Image();
+portalImg.src = 'image/传送门.png';
+
+let gameRunning = false;
+let gravity = 1.2;
+let jumpStrength = -18;
+let jumpCount = 0;
+let passCount = 0;
+const passTarget = 30;
+let portal = null;
+let readyToEnterBoss = false;
+
+let player = {
+  x: 100,
+  y: canvas.height / 2,
+  width: 80,
+  height: 80,
+  velocityY: 0
+};
+
+const obstacleTypes = [
+  {
+    name: "crab",
+    img: (() => { let i = new Image(); i.src = "image/耄耋螃蟹.gif"; return i; })(),
+    displayWidth: 60,
+    displayHeight: 60,
+    move: ob => ob.x -= 6,
+    ground: true,
+    hitbox: { offsetX: 15, offsetY: 15, width: 30, height: 30 }
+  },
+  {
+    name: "spider-updown",
+    img: (() => { let i = new Image(); i.src = "image/耄耋蜘蛛上下.gif"; return i; })(),
+    displayWidth: 80,
+    displayHeight: 120,
+    move: ob => ob.y += Math.sin(Date.now() / 200 + ob.offset) * 1.5,
+    ground: false,
+    hitbox: { offsetX: 10, offsetY: 30, width: 50, height: 60 },
+    yOffset: -80
+  },
+  {
+    name: "spider-leftright",
+    img: (() => { let i = new Image(); i.src = "image/耄耋蜘蛛左右.gif"; return i; })(),
+    displayWidth: 120,
+    displayHeight: 120,
+    move: ob => ob.x += Math.sin(Date.now() / 150 + ob.offset) * 2 - 6,
+    ground: true,
+    hitbox: { offsetX: 30, offsetY: 30, width: 40, height: 40 },
+    yOffset: 30
+  }
+];
+
+let obstacles = [];
+function createObstacle() {
+  if (!gameRunning || passCount >= passTarget || portal) return;
+  const type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+  let baseY = type.ground ? (canvas.height - type.displayHeight - 20) : (canvas.height / 2 - type.displayHeight / 2);
+  if (type.yOffset) baseY += type.yOffset;
+  obstacles.push({
+    x: canvas.width + 50,
+    y: baseY,
+    type: type,
+    offset: Math.random() * Math.PI * 2,
+    passed: false
+  });
+}
+
+function drawPlayer() {
+  ctx.save();
+  ctx.translate(player.x + player.width / 2, player.y + player.height / 2);
+  ctx.scale(-1, 1);
+  ctx.drawImage(playerImg, -player.width / 2, -player.height / 2, player.width, player.height);
+  ctx.restore();
+}
+
+function drawObstacles() {
+  obstacles.forEach(ob => {
+    const t = ob.type;
+    const img = t.img;
+    const maxW = t.displayWidth;
+    const maxH = t.displayHeight;
+    let ratio = img.width / img.height;
+    let drawW = maxW;
+    let drawH = maxH;
+    if (drawW / drawH > ratio) {
+      drawW = drawH * ratio;
+    } else {
+      drawH = drawW / ratio;
+    }
+    const offsetX = (maxW - drawW) / 2;
+    const offsetY = (maxH - drawH) / 2;
+    ctx.drawImage(img, ob.x + offsetX, ob.y + offsetY, drawW, drawH);
+  });
+}
+
+function drawPortal() {
+  if (!portal) return;
+  ctx.drawImage(portalImg, portal.x, portal.y, portal.width, portal.height);
+}
+
+function updateGame() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!readyToEnterBoss) drawPlayer();
+  if (!readyToEnterBoss) drawObstacles();
+  drawPortal();
+
+  if (readyToEnterBoss) return;
+
+  player.velocityY += gravity;
+  player.y += player.velocityY;
+  if (player.y + player.height >= canvas.height) {
+    player.y = canvas.height - player.height;
+    player.velocityY = 0;
+    jumpCount = 0;
+  }
+
+  obstacles.forEach(ob => {
+    if (gameRunning) ob.type.move(ob);
+    if (!ob.passed && ob.x + ob.type.displayWidth < player.x) {
+      ob.passed = true;
+      passCount++;
+      document.getElementById('passCount').innerText = passCount;
+      if (passCount >= passTarget && !portal) {
+        portal = {
+          x: canvas.width / 2 - 50,
+          y: canvas.height / 2 - 70,
+          width: 100,
+          height: 140
+        };
+        gameRunning = false;
+        document.getElementById('portalScreen').style.display = 'flex';
+      }
+    }
+  });
+  obstacles = obstacles.filter(ob => ob.x + ob.type.displayWidth > 0);
+
+  if (gameRunning) {
+    for (let ob of obstacles) {
+      const hb = ob.type.hitbox;
+      const ox = ob.x + hb.offsetX;
+      const oy = ob.y + hb.offsetY;
+      const ow = hb.width;
+      const oh = hb.height;
+      if (
+        player.x < ox + ow &&
+        player.x + player.width > ox &&
+        player.y < oy + oh &&
+        player.y + player.height > oy
+      ) {
+        gameOver("你过载了！", false);
+        return;
+      }
+    }
+  }
+
+  requestAnimationFrame(updateGame);
+}
+
+function startGame() {
+  document.getElementById('startScreen').style.display = 'none';
+  gameRunning = true;
+  setInterval(() => {
+    if (gameRunning) createObstacle();
+  }, 1000);
+  updateGame();
+}
+
+function enterBoss() {
+  readyToEnterBoss = true;
+  document.getElementById('portalScreen').style.display = 'none';
+  gameOver("第一关完成！", true);
+}
+
+function gameOver(message, success = false) {
+  gameRunning = false;
+  const img = document.getElementById('gameOverImg');
+  img.src = success ? 'image/耄耋过载.gif' : 'image/耄耋过载.jpg';
+  document.getElementById('bossButton').style.display = success ? 'inline-block' : 'none';
+  document.getElementById('gameOverText').innerText = message;
+  document.getElementById('gameOverScreen').style.display = 'flex';
+}
+
+function jump() {
+  if (!gameRunning) return;
+  if (jumpCount < 2) {
+    player.velocityY = jumpStrength;
+    jumpCount++;
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') jump();
+});
+document.addEventListener('mousedown', jump);
+document.addEventListener('touchstart', jump);
+</script>
+</body>
+</html>
